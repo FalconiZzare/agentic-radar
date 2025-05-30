@@ -1,6 +1,6 @@
 ## Getting Started
 
-First, install Python [3.12.8](https://www.python.org/downloads/release/python-3130/)
+First, install Python [3.12.8](https://www.python.org/downloads/release/python-3130/) and [Agentic Radar](https://github.com/splx-ai/agentic-radar)
 
 Then, to create the virtual environment, run:
 
