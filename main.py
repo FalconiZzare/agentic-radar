@@ -27,13 +27,13 @@ app = FastAPI(
 )
 
 
-# app.add_middleware(
-#     CORSMiddleware,
-#     allow_origins=["https://localhost:3000", "https://www.octopi.ai"],
-#     allow_credentials=True,
-#     allow_methods=["POST", "GET"],
-#     allow_headers=["*"],
-# )
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "https://www.octopi.ai"],
+    allow_credentials=True,
+    allow_methods=["POST", "GET"],
+    allow_headers=["*"],
+)
 
 
 @app.get("/")
