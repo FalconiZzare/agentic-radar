@@ -7,4 +7,5 @@
 out
 gen
 .venv
-.tmp
+/tmp
+.env

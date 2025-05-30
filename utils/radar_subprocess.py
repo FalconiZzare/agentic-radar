@@ -1,9 +1,8 @@
 import subprocess
 import sys
-from fastapi.responses import JSONResponse
 
 
-def agentic_radar_subprocess(command):
+async def agentic_radar_subprocess(command):
     try:
         result = subprocess.run(
             command,
@@ -17,28 +16,24 @@ def agentic_radar_subprocess(command):
             if result.returncode != 0:
                 print(f"Command failed with return code: {result.returncode}", file=sys.stderr)
                 print(f"Error output: {result.stderr}", file=sys.stderr)
-                return JSONResponse(
-                    status_code=400,
-                    content={
-                        "success": False,
-                        "messages": result.stderr
-                    }
-                )
-            print(result.stdout)
-            return JSONResponse(
-                status_code=200,
-                content={
-                    "success": True,
-                    "messages": result.stdout.strip()
+
+                return {
+                    "status_code": 400,
+                    "success": False,
+                    "message": result.stderr.strip()
                 }
-            )
+
+            print(result.stdout)
+            return {
+                "status_code": 200,
+                "success": True,
+                "message": result.stdout.strip()
+            }
         return None
     except subprocess.CalledProcessError as e:
         print(f"Error executing command: {e}", file=sys.stderr)
-        return JSONResponse(
-            status_code=500,
-            content={
-                "success": False,
-                "messages": e
-            }
-        )
+        return {
+            "status_code": 500,
+            "success": False,
+            "message": e
+        }

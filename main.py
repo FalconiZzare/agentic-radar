@@ -2,6 +2,8 @@ from contextlib import asynccontextmanager
 
 import uvicorn
 from fastapi import FastAPI, Form, File, UploadFile
+from fastapi.responses import JSONResponse
+
 from prints.print_green import print_green
 from prints.print_red import print_red
 from fastapi.middleware.cors import CORSMiddleware
@@ -40,12 +42,19 @@ async def root():
 
 
 @app.get("/ok")
-async def root():
-    return agentic_radar_subprocess(['agentic-radar', '--version'])
+async def health_check():
+    res = await agentic_radar_subprocess(['agentic-radar', '--version'])
+    return JSONResponse(
+        status_code=res["status_code"],
+        content={
+            "success": res["success"],
+            "message": res["message"]
+        }
+    )
 
 
 @app.post("/scan")
-async def root(framework: str = Form(...), file: UploadFile = File(...)):
+async def scan_endpoint(framework: str = Form(...), file: UploadFile = File(...)):
     return await radar_scan(framework, file)
 
 if __name__ == "__main__":
