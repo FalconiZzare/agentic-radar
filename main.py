@@ -29,7 +29,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "https://www.octopi.ai"],
+    allow_origins=["http://localhost:5000", "https://api.octopi.ai"],
     allow_credentials=True,
     allow_methods=["POST", "GET"],
     allow_headers=["*"],
@@ -54,8 +54,14 @@ async def health_check():
 
 
 @app.post("/scan")
-async def scan_endpoint(framework: str = Form(...), file: UploadFile = File(...)):
-    return await radar_scan(framework, file)
+async def scan_endpoint(
+        framework: str = Form(...),
+        user_id: str = Form(...),
+        scan_id: str = Form(...),
+        file_name: str = Form(...),
+        file: UploadFile = File(...)
+):
+    return await radar_scan(framework, file, file_name, user_id, scan_id)
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000, reload=False)

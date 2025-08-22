@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 from fastapi.responses import JSONResponse
 import boto3
 from botocore.exceptions import ClientError, NoCredentialsError
+from bs4 import BeautifulSoup
 import logging
 
 from utils.radar_subprocess import agentic_radar_subprocess
@@ -35,7 +36,6 @@ def get_s3_client():
     try:
         # Always prioritize explicitly provided credentials
         if AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY:
-            logger.info("Using explicitly provided AWS credentials")
             return boto3.client(
                 's3',
                 aws_access_key_id=AWS_ACCESS_KEY_ID,
@@ -55,9 +55,63 @@ def get_s3_client():
         return None
 
 
+def download_input_from_s3(file_path: str, s3_key: str) -> dict:
+    """Download a file from S3 using boto3"""
+    s3_client = get_s3_client()
+    if not s3_client:
+        return {
+            "success": False,
+            "error": "Failed to initialize S3 client"
+        }
+
+    try:
+        file_path = UPLOAD_DIR / file_path
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Verify the directory was created
+        if not file_path.parent.exists():
+            return {
+                "success": False,
+                "error": f"Failed to create directory: {file_path.parent}"
+            }
+
+        # Check write permissions
+        if not os.access(file_path.parent, os.W_OK):
+            return {
+                "success": False,
+                "error": f"No write permission to directory: {file_path.parent}"
+            }
+
+        s3_client.download_file(
+            Bucket=S3_BUCKET_NAME,
+            Key=s3_key,
+            Filename=str(file_path)
+        )
+
+        return {
+            "success": True,
+        }
+
+    except ClientError as e:
+        error_msg = f"AWS S3 download error: {e}"
+        logger.error(error_msg)
+        return {
+            "success": False,
+            "error": error_msg,
+            "error_code": e.response['Error']['Code']
+        }
+    except Exception as e:
+        error_msg = f"S3 Download error: {str(e)}"
+        logger.error(error_msg)
+        return {
+            "success": False,
+            "error": error_msg
+        }
+
+
 def upload_report_to_s3(file_path: str, s3_key: str) -> dict:
     """
-    Upload HTML report file to S3
+    Change Branding & Upload HTML report file to S3
 
     Args:
         file_path: Local path to the HTML report file
@@ -81,6 +135,18 @@ def upload_report_to_s3(file_path: str, s3_key: str) -> dict:
                 "error": f"Report file not found: {file_path}"
             }
 
+        with open(file_path, 'r', encoding='utf-8') as file:
+            html_content = file.read()
+
+        soup = BeautifulSoup(html_content, 'html.parser')
+        masked_element = soup.find('g', {'mask': 'url(#mask1_5005_58782)'})
+
+        if masked_element:
+            masked_element.decompose()
+
+            with open(file_path, 'w', encoding='utf-8') as file:
+                file.write(str(soup))
+
         # Upload file to S3
         s3_client.upload_file(
             file_path,
@@ -95,8 +161,6 @@ def upload_report_to_s3(file_path: str, s3_key: str) -> dict:
                 }
             }
         )
-
-        logger.info(f"Report uploaded to S3: s3://{S3_BUCKET_NAME}/{s3_key}")
 
         return {
             "success": True,
@@ -152,8 +216,6 @@ def generate_presigned_url(s3_key: str, expiration: int = 3600) -> dict:
 
         expires_at = datetime.now().timestamp() + expiration
 
-        logger.info(f"Presigned URL generated for {s3_key}")
-
         return {
             "success": True,
             "presigned_url": presigned_url,
@@ -190,14 +252,12 @@ def clear_tmp_directory():
             logger.warning(f"Error removing {item}: {e}")
 
 
-async def radar_scan(framework, file):
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    file_location = UPLOAD_DIR / file.filename
-    report_filename = f"report_{timestamp}.html"
-    report_path = UPLOAD_DIR / report_filename
+async def radar_scan(framework, file, file_name, user_id, scan_id):
+    report_filename = f"report_{user_id}_{scan_id}.html"
+    report_path = UPLOAD_DIR / user_id / scan_id / report_filename
 
     # S3 key for the report
-    s3_report_key = report_filename
+    s3_report_key = f"results/{user_id}/{scan_id}/{report_filename}"
 
     # Validate frameworkk
     if framework not in ALLOWED_FRAMEWORKS:
@@ -235,29 +295,39 @@ async def radar_scan(framework, file):
         )
 
     try:
-        # Save uploaded file
+        # Download job file from S3
         try:
-            with file.file as src, open(file_location, "wb") as dst:
-                shutil.copyfileobj(src, dst)
-            logger.info(f"File saved successfully: {file.filename}")
+            s3_key = f"inputs/{user_id}/{scan_id}/{file_name}"
+            file_location = f"{user_id}/{scan_id}/{file_name}"
+            download_result = download_input_from_s3(file_location, s3_key)
+
+            if not download_result["success"]:
+                logger.error(f"S3 Download failed: {download_result['error']}")
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "success": False,
+                        "message": download_result["error"],
+                        "error_type": "s3_download_error",
+                    }
+                )
         except Exception as e:
-            error_msg = f"Failed to save uploaded file: {str(e)}"
+            error_msg = f"Unexpected error during S3 download: {str(e)}"
             logger.error(error_msg)
             return JSONResponse(
-                status_code=400,
+                status_code=500,
                 content={
                     "success": False,
                     "message": error_msg,
-                    "error_type": "file_save_error"
+                    "error_type": "file_download_error"
                 }
             )
 
         # Run the radar scan
         try:
             res = await agentic_radar_subprocess(
-                ["agentic-radar", "scan", framework, "-i", str(UPLOAD_DIR), "-o", str(report_path)]
+                ["agentic-radar", "scan", framework, "-i", str(UPLOAD_DIR / user_id / scan_id), "-o", str(report_path)]
             )
-            logger.info(f"Radar scan completed: {res['success']}")
         except Exception as e:
             error_msg = f"Radar scan subprocess failed: {str(e)}"
             logger.error(error_msg)
@@ -280,8 +350,7 @@ async def radar_scan(framework, file):
                     "message": res["message"],
                     "error_type": "radar_scan_failed",
                     "file_name": file.filename,
-                    "framework": framework,
-                    "timestamp": timestamp
+                    "framework": framework
                 }
             )
 
@@ -297,7 +366,6 @@ async def radar_scan(framework, file):
                     "error_type": "report_generation_error",
                     "file_name": file.filename,
                     "framework": framework,
-                    "timestamp": timestamp
                 }
             )
 
@@ -315,7 +383,6 @@ async def radar_scan(framework, file):
                     "error_type": "s3_upload_error",
                     "file_name": file.filename,
                     "framework": framework,
-                    "timestamp": timestamp,
                     "s3_error_details": upload_result.get("error_code")
                 }
             )
@@ -334,7 +401,6 @@ async def radar_scan(framework, file):
                     "error_type": "presigned_url_error",
                     "file_name": file.filename,
                     "framework": framework,
-                    "timestamp": timestamp,
                     "s3_error_details": presigned_result.get("error_code")
                 }
             )
@@ -344,7 +410,6 @@ async def radar_scan(framework, file):
             "success": True,
             "file_name": file.filename,
             "framework": framework,
-            "timestamp": timestamp,
             "message": res["message"],
             "report_name": report_filename,
             "report_content": {
@@ -355,7 +420,6 @@ async def radar_scan(framework, file):
             }
         }
 
-        logger.info("Radar scan process completed successfully")
         return JSONResponse(
             status_code=200,
             content=response_data
@@ -377,6 +441,5 @@ async def radar_scan(framework, file):
         # Clean up uploaded files and local reports
         try:
             clear_tmp_directory()
-            logger.info("Temporary files cleaned up")
         except Exception as e:
             logger.warning(f"Error during cleanup: {e}")
