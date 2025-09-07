@@ -38,7 +38,7 @@ app.add_middleware(
 
 @app.get("/")
 async def root():
-    return {"message": "Agentic Radar Server is running", "status": "ok"}
+    return {"message": "Octopi Watch Server is running", "status": "ok"}
 
 
 @app.get("/ok")
@@ -59,9 +59,9 @@ async def scan_endpoint(
         user_id: str = Form(...),
         scan_id: str = Form(...),
         file_name: str = Form(...),
-        file: UploadFile = File(...)
+        require_presign: bool = Form(...),
 ):
-    return await radar_scan(framework, file, file_name, user_id, scan_id)
+    return await radar_scan(framework, file_name, user_id, scan_id, require_presign)
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000, reload=False)

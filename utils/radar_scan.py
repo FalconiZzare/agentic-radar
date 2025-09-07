@@ -7,10 +7,10 @@ from dotenv import load_dotenv
 from fastapi.responses import JSONResponse
 import boto3
 from botocore.exceptions import ClientError, NoCredentialsError
-from bs4 import BeautifulSoup
 import logging
 
 from utils.radar_subprocess import agentic_radar_subprocess
+from utils.helpers import replace_mask_logo
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -22,7 +22,7 @@ UPLOAD_DIR = Path("tmp")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 # S3 Configuration - Set these via environment variables
-S3_BUCKET_NAME = os.getenv('S3_BUCKET_NAME', 'agentic-radar-reports')
+S3_BUCKET_NAME = os.getenv('S3_BUCKET_NAME')
 AWS_ACCESS_KEY_ID = os.getenv('AWS_ACCESS_KEY_ID')
 AWS_SECRET_ACCESS_KEY = os.getenv('AWS_SECRET_ACCESS_KEY')
 AWS_REGION = os.getenv('AWS_REGION', 'ap-south-1')
@@ -135,17 +135,13 @@ def upload_report_to_s3(file_path: str, s3_key: str) -> dict:
                 "error": f"Report file not found: {file_path}"
             }
 
-        with open(file_path, 'r', encoding='utf-8') as file:
-            html_content = file.read()
+        octopi_svg = """
+        <g>
+            <image href="https://www.octopi.ai/images/logo/logo_full.svg" x="10" y="10" height="44" width="250"/>
+        </g>
+        """
 
-        soup = BeautifulSoup(html_content, 'html.parser')
-        masked_element = soup.find('g', {'mask': 'url(#mask1_5005_58782)'})
-
-        if masked_element:
-            masked_element.decompose()
-
-            with open(file_path, 'w', encoding='utf-8') as file:
-                file.write(str(soup))
+        replace_mask_logo(file_path, octopi_svg)
 
         # Upload file to S3
         s3_client.upload_file(
@@ -156,7 +152,7 @@ def upload_report_to_s3(file_path: str, s3_key: str) -> dict:
                 'ContentType': 'text/html',
                 'Metadata': {
                     'ContentDisposition': 'inline',
-                    'source': 'agentic-radar',
+                    'source': 'octopi-watch',
                     'upload_time': datetime.now().isoformat()
                 }
             }
@@ -252,8 +248,8 @@ def clear_tmp_directory():
             logger.warning(f"Error removing {item}: {e}")
 
 
-async def radar_scan(framework, file, file_name, user_id, scan_id):
-    report_filename = f"report_{user_id}_{scan_id}.html"
+async def radar_scan(framework, file_name, user_id, scan_id, require_presign):
+    report_filename = f"report_{file_name}.html"
     report_path = UPLOAD_DIR / user_id / scan_id / report_filename
 
     # S3 key for the report
@@ -269,28 +265,6 @@ async def radar_scan(framework, file, file_name, user_id, scan_id):
                 "success": False,
                 "message": error_msg,
                 "error_type": "invalid_framework"
-            }
-        )
-
-    # Validate file type
-    file_extension = Path(file.filename).suffix.lower()
-    # Handle compound extensions like .tar.gz
-    if file.filename.lower().endswith('.tar.gz'):
-        file_extension = '.tar.gz'
-    elif file.filename.lower().endswith('.tar.bz2'):
-        file_extension = '.tar.bz2'
-
-    if file_extension not in ALLOWED_FILETYPES:
-        error_msg = f"File type '{file_extension}' is not allowed. Allowed file types: [{', '.join(ALLOWED_FILETYPES)}]"
-        logger.error(error_msg)
-        return JSONResponse(
-            status_code=400,
-            content={
-                "success": False,
-                "message": error_msg,
-                "error_type": "invalid_filetype",
-                "filename": file.filename,
-                "detected_extension": file_extension
             }
         )
 
@@ -349,7 +323,7 @@ async def radar_scan(framework, file, file_name, user_id, scan_id):
                     "success": False,
                     "message": res["message"],
                     "error_type": "radar_scan_failed",
-                    "file_name": file.filename,
+                    "file_name": file_name,
                     "framework": framework
                 }
             )
@@ -364,7 +338,7 @@ async def radar_scan(framework, file, file_name, user_id, scan_id):
                     "success": False,
                     "message": error_msg,
                     "error_type": "report_generation_error",
-                    "file_name": file.filename,
+                    "file_name": file_name,
                     "framework": framework,
                 }
             )
@@ -381,34 +355,36 @@ async def radar_scan(framework, file, file_name, user_id, scan_id):
                     "success": False,
                     "message": error_msg,
                     "error_type": "s3_upload_error",
-                    "file_name": file.filename,
+                    "file_name": file_name,
                     "framework": framework,
                     "s3_error_details": upload_result.get("error_code")
                 }
             )
 
         # Generate presigned URL for the uploaded report
-        presigned_result = generate_presigned_url(s3_report_key, expiration=3600)
+        presigned_result = []
+        if require_presign:
+            presigned_result = generate_presigned_url(s3_report_key, expiration=3600)
 
-        if not presigned_result["success"]:
-            error_msg = f"Failed to generate presigned URL: {presigned_result['error']}"
-            logger.error(error_msg)
-            return JSONResponse(
-                status_code=400,
-                content={
-                    "success": False,
-                    "message": error_msg,
-                    "error_type": "presigned_url_error",
-                    "file_name": file.filename,
-                    "framework": framework,
-                    "s3_error_details": presigned_result.get("error_code")
-                }
-            )
+            if not presigned_result["success"]:
+                error_msg = f"Failed to generate presigned URL: {presigned_result['error']}"
+                logger.error(error_msg)
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "success": False,
+                        "message": error_msg,
+                        "error_type": "presigned_url_error",
+                        "file_name": file_name,
+                        "framework": framework,
+                        "s3_error_details": presigned_result.get("error_code")
+                    }
+                )
 
         # All processes succeeded - return success response
         response_data = {
             "success": True,
-            "file_name": file.filename,
+            "file_name": file_name,
             "framework": framework,
             "message": res["message"],
             "report_name": report_filename,
