@@ -59,9 +59,9 @@ async def scan_endpoint(
         user_id: str = Form(...),
         scan_id: str = Form(...),
         file_name: str = Form(...),
-        require_presign: bool = Form(...),
+        presign_duration: int = Form(...),
 ):
-    return await radar_scan(framework, file_name, user_id, scan_id, require_presign)
+    return await radar_scan(framework, file_name, user_id, scan_id, presign_duration)
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000, reload=False)

@@ -248,7 +248,7 @@ def clear_tmp_directory():
             logger.warning(f"Error removing {item}: {e}")
 
 
-async def radar_scan(framework, file_name, user_id, scan_id, require_presign):
+async def radar_scan(framework, file_name, user_id, scan_id, presign_duration):
     report_filename = f"report_{file_name}.html"
     report_path = UPLOAD_DIR / user_id / scan_id / report_filename
 
@@ -362,24 +362,22 @@ async def radar_scan(framework, file_name, user_id, scan_id, require_presign):
             )
 
         # Generate presigned URL for the uploaded report
-        presigned_result = []
-        if require_presign:
-            presigned_result = generate_presigned_url(s3_report_key, expiration=3600)
+        presigned_result = generate_presigned_url(s3_report_key, expiration=presign_duration)
 
-            if not presigned_result["success"]:
-                error_msg = f"Failed to generate presigned URL: {presigned_result['error']}"
-                logger.error(error_msg)
-                return JSONResponse(
-                    status_code=400,
-                    content={
-                        "success": False,
-                        "message": error_msg,
-                        "error_type": "presigned_url_error",
-                        "file_name": file_name,
-                        "framework": framework,
-                        "s3_error_details": presigned_result.get("error_code")
-                    }
-                )
+        if not presigned_result["success"]:
+            error_msg = f"Failed to generate presigned URL: {presigned_result['error']}"
+            logger.error(error_msg)
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "success": False,
+                    "message": error_msg,
+                    "error_type": "presigned_url_error",
+                    "file_name": file_name,
+                    "framework": framework,
+                    "s3_error_details": presigned_result.get("error_code")
+                }
+            )
 
         # All processes succeeded - return success response
         response_data = {
