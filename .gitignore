@@ -9,3 +9,4 @@ gen
 .venv
 /tmp
 .env
+config.json

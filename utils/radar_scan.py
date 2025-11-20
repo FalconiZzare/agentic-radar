@@ -9,7 +9,7 @@ import boto3
 from botocore.exceptions import ClientError, NoCredentialsError
 import logging
 
-from utils.radar_subprocess import agentic_radar_subprocess
+from utils.radar_subprocess import execute_subprocess
 from utils.helpers import replace_mask_logo
 
 # Configure logging
@@ -299,7 +299,7 @@ async def radar_scan(framework, file_name, user_id, scan_id, presign_duration):
 
         # Run the radar scan
         try:
-            res = await agentic_radar_subprocess(
+            res = await execute_subprocess(
                 ["agentic-radar", "scan", framework, "-i", str(UPLOAD_DIR / user_id / scan_id), "-o", str(report_path)]
             )
         except Exception as e:

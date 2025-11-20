@@ -2,7 +2,7 @@ import subprocess
 import sys
 
 
-async def agentic_radar_subprocess(command):
+async def execute_subprocess(command):
     try:
         result = subprocess.run(
             command,
@@ -23,7 +23,6 @@ async def agentic_radar_subprocess(command):
                     "message": result.stderr.strip()
                 }
 
-            print(result.stdout)
             return {
                 "status_code": 200,
                 "success": True,
