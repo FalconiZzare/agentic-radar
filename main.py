@@ -30,7 +30,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5000", "https://api.octopi.ai"],
+    allow_origins=["https://n8n-888533232611.us-central1.run.app", "https://api.octopi.ai"],
     allow_credentials=True,
     allow_methods=["POST", "GET"],
     allow_headers=["*"],
